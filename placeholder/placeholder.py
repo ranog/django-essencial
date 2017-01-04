@@ -1,3 +1,4 @@
+import hashlib # retorna um valor opaco de ETag.
 import os
 import sys
 
@@ -19,10 +20,14 @@ settings.configure(
     ),
 )
 
+from io import BytesIO
+from PIL import Image, ImageDraw
 from django import forms
 from django.conf.urls import url
+from django.core.cache import cache # verifica se a imagem já está armazenada.
 from django.core.wsgi import get_wsgi_application
 from django.http import HttpResponse, HttpResponseBadRequest
+from django.views.decorators.http import etag
 
 class ImageForm(forms.Form):
     """Formulário para validar o placeholder de imagem solicitado."""
@@ -30,13 +35,42 @@ class ImageForm(forms.Form):
     height = forms.IntegerField(min_value=1, max_value=2000)
     width = forms.IntegerField(min_value=1, max_value=2000)
 
+    def generate(self, image_format='PNG'):
+        """Gera uma imagem do tipo especificado e a retorna na forma de bytes puros."""
+        height = self.cleaned_data['height']
+        width = self.cleaned_data['width']
+        # uma chave de cache dependente da largura, da altura e do formato da imagem é gerada:
+        key = '{}.{}.{}'.format(width, height, image_format)
+        # verifica se a imagem já está armazenada:
+        content = cache.get(key)
+        if content is None:
+            image = Image.new('RGB', (width, height))
+            draw = ImageDraw.Draw(image)
+            text = '{} X {}'.format(width, height)
+            textwidth, textheight = draw.textsize(text)
+            if textwidth < width and textheight < height:
+                texttop = (height - texttheight) // 2
+                textleft = (width - textwidth) // 2
+                draw.text((textleft, texttop), text, fill=(255, 255, 255))
+            content = BytesIO()
+            image.save(content, image_format)
+            content.seek(0)
+            # quando a imagem não estiver no cache e for criada, ela será armazenada no cache com a chave durante uma hora:
+            cache.set(key, content, 60 * 60)
+        return content
+
+# generate_etag é uma função que recebe os mesmos argumentos que a viewplaceholder. Ela usa hashlib para retornar um valor opaco de ETag, que variará de acordo com os valores de width e de height:
+def generate_etag(request, width, height):
+    content = 'Placeholder: {0} X {1}'.format(width, height)
+    return hashlib.sha1(content.encode('utf-8')).hexdigest()
+
+# a função generate_etag será passada ao decorador etag na view placeholder:
+@etag(generate_etag)
 def placeholder(request, width, height):
     form = ImageForm({'height': height, 'width': width})
     if form.is_valid():
-        height = form.cleaned_data['height']
-        width = form.cleaned_data['width']
-        # TODO: O restante do view deverá ser inserido aqui
-        return HttpResponse('Ok')
+        image = form.generate()
+        return HttpResponse(image, content_type='image/png')
     else:
         return HttpResponseBadRequest('Invalid Image Request')
 
