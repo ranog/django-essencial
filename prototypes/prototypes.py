@@ -3,6 +3,8 @@ import sys
 
 from django.conf import settings
 
+
+BASE_DIR = os.path.dirname(__file__)
 DEBUG = os.environ.get('DEBUG', 'on') == 'on'
 SECRET_KEY = os.environ.get('SECRET_KEY', '$!69dui-gry6r9ozn96%yt#21_dxyx!g=986dhulpf+m0q=pfz')
 
@@ -17,6 +19,7 @@ settings.configure(
         'sitebuilder',
     ),
     STATIC_URL='/static/',
+    SITE_PAGES_DIRECTORY=os.path.join(BASE_DIR, 'pages')
 )
 
 if __name__ == "__main__":
